@@ -123,6 +123,7 @@ pub(crate) fn convert(
     let dummy = Rect::from_xywh(0.0, 0.0, 0.0, 0.0).unwrap();
 
     let mut text = Text {
+        source_node_id: text_node.source_node_id(),
         id,
         rendering_mode,
         dx: pos_list.iter().map(|v| v.dx.unwrap_or(0.0)).collect(),
@@ -138,6 +139,7 @@ pub(crate) fn convert(
         abs_stroke_bounding_box: dummy,
         flattened: Box::new(Group::empty()),
         layouted: vec![],
+        layouted_clusters: vec![],
     };
 
     if text::convert(&mut text, &state.opt.font_resolver, cache).is_none() {
@@ -280,6 +282,7 @@ fn collect_text_chunks_impl(
         let visibility: Visibility = parent.find_attribute(AId::Visibility).unwrap_or_default();
 
         let span = TextSpan {
+            source_node_id: parent.source_node_id(),
             start: 0,
             end: 0,
             fill: style::resolve_fill(parent, true, state, cache),
