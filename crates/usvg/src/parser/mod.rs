@@ -9,6 +9,7 @@ mod marker;
 mod mask;
 mod options;
 mod paint_server;
+mod resolved_style;
 mod shapes;
 mod style;
 mod svgtree;
@@ -22,6 +23,7 @@ mod text;
 pub(crate) use converter::Cache;
 pub use image::{ImageHrefDataResolverFn, ImageHrefResolver, ImageHrefStringResolverFn};
 pub use options::Options;
+pub use resolved_style::{ResolvedElementStyle, ResolvedStyleProperty, ResolvedStyleValue};
 #[cfg(feature = "writer")]
 pub(crate) use svgtree::{AId, EId};
 
@@ -46,6 +48,9 @@ pub enum Error {
     ///
     /// Also occurs if width, height and viewBox are not set.
     InvalidSize,
+
+    /// Resolved host styles must identify distinct SVG elements in the input.
+    InvalidResolvedStyleSource(u32),
 
     /// Failed to parse an SVG data.
     ParsingFailed(roxmltree::Error),
@@ -74,6 +79,12 @@ impl std::fmt::Display for Error {
             }
             Error::InvalidSize => {
                 write!(f, "SVG has an invalid size")
+            }
+            Error::InvalidResolvedStyleSource(id) => {
+                write!(
+                    f,
+                    "resolved style source {id} is missing, duplicated, or not an SVG element"
+                )
             }
             Error::ParsingFailed(ref e) => {
                 write!(f, "SVG data parsing failed cause {}", e)
@@ -171,6 +182,38 @@ impl crate::Tree {
     /// Parses `Tree` from `roxmltree::Document`.
     pub fn from_xmltree(doc: &roxmltree::Document, opt: &Options) -> Result<Self, Error> {
         let doc = svgtree::Document::parse_tree(doc, opt.style_sheet.as_deref())?;
+        self::converter::convert_doc(&doc, opt)
+    }
+
+    /// Parses inline SVG with computed presentation values from its host.
+    ///
+    /// The input is immutable data, not a callback or a second stylesheet.
+    /// Original XML IDs identify source elements; authored IDs remain intact.
+    /// See [`ResolvedElementStyle`] for the boundary around `use` instances.
+    pub fn from_xmltree_with_resolved_styles(
+        doc: &roxmltree::Document,
+        opt: &Options,
+        styles: &[ResolvedElementStyle],
+    ) -> Result<Self, Error> {
+        let elements = doc
+            .descendants()
+            .filter(|node| {
+                node.is_element()
+                    && node.tag_name().namespace() == Some("http://www.w3.org/2000/svg")
+            })
+            .map(|node| node.id().get())
+            .collect::<std::collections::HashSet<_>>();
+        let mut sources = std::collections::HashSet::new();
+        for style in styles {
+            if !elements.contains(&style.source_node_id) || !sources.insert(style.source_node_id) {
+                return Err(Error::InvalidResolvedStyleSource(style.source_node_id));
+            }
+        }
+        let doc = svgtree::Document::parse_tree_with_resolved_styles(
+            doc,
+            opt.style_sheet.as_deref(),
+            styles,
+        )?;
         self::converter::convert_doc(&doc, opt)
     }
 }

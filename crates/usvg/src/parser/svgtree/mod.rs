@@ -25,6 +25,7 @@ pub struct Document<'input> {
     nodes: Vec<NodeData>,
     attrs: Vec<Attribute<'input>>,
     links: HashMap<String, NodeId>,
+    resolved_styles: HashMap<u32, Vec<Attribute<'input>>>,
 }
 
 impl<'input> Document<'input> {

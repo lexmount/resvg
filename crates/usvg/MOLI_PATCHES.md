@@ -21,3 +21,26 @@ belong to Moli's consumer, not to an alternate layout algorithm in this patch.
 `tests/text_geometry.rs` covers source association with duplicate IDs, nested
 spans and the distinction between typographic advance and final placement.
 Moli also tests the SVG DOM consumers and their rendering snapshots.
+
+## Explicit host style input
+
+`Tree::from_xmltree_with_resolved_styles` accepts a read-only table of original
+XML element identities and validated presentation values. The closed property
+enum and value parser accept individual computed atoms, not CSS declaration
+lists, selectors or host callbacks. Values enter the existing SVG attribute
+conversion after authored CSS has been evaluated, so the host's final cascade
+does not require generated inline styles or `!important`.
+
+The ordinary `from_data` and `from_xmltree` paths retain their original behavior.
+This API does not resolve external resources or add another text shaper.
+
+The table describes original XML elements. It deliberately does not copy a
+source element's computed inherited values into generated `<use>` instances;
+instances retain the backend's SVG attribute/stylesheet and use-parent
+inheritance. Applying document CSS to instance trees requires a future
+instance-aware host input and is not provided by this API. Resource-valued
+paint is likewise left to the existing authored SVG resource path.
+
+`tests/resolved_style.rs` covers host font/fill precedence, declaration
+rejection, source validation, ordinary decoding and distinct inherited styles
+on two `<use>` instances.

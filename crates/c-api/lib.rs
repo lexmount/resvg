@@ -859,7 +859,9 @@ fn convert_error(e: usvg::Error) -> resvg_error {
         usvg::Error::MalformedGZip => resvg_error::MALFORMED_GZIP,
         usvg::Error::ElementsLimitReached => resvg_error::ELEMENTS_LIMIT_REACHED,
         usvg::Error::InvalidSize => resvg_error::INVALID_SIZE,
-        usvg::Error::ParsingFailed(_) => resvg_error::PARSING_FAILED,
+        usvg::Error::ParsingFailed(_) | usvg::Error::InvalidResolvedStyleSource(_) => {
+            resvg_error::PARSING_FAILED
+        }
     }
 }
 

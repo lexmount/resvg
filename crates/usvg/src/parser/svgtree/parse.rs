@@ -19,7 +19,15 @@ impl<'input> Document<'input> {
         xml: &roxmltree::Document<'input>,
         injected_stylesheet: Option<&'input str>,
     ) -> Result<Document<'input>, Error> {
-        parse(xml, injected_stylesheet)
+        parse(xml, injected_stylesheet, &[])
+    }
+
+    pub fn parse_tree_with_resolved_styles(
+        xml: &roxmltree::Document<'input>,
+        injected_stylesheet: Option<&'input str>,
+        styles: &[crate::ResolvedElementStyle],
+    ) -> Result<Document<'input>, Error> {
+        parse(xml, injected_stylesheet, styles)
     }
 
     pub(crate) fn append(&mut self, parent_id: NodeId, kind: NodeKind) -> NodeId {
@@ -67,11 +75,30 @@ impl<'input> Document<'input> {
 fn parse<'input>(
     xml: &roxmltree::Document<'input>,
     injected_stylesheet: Option<&'input str>,
+    styles: &[crate::ResolvedElementStyle],
 ) -> Result<Document<'input>, Error> {
     let mut doc = Document {
         nodes: Vec::new(),
         attrs: Vec::new(),
         links: HashMap::new(),
+        resolved_styles: styles
+            .iter()
+            .map(|style| {
+                let attrs = style
+                    .values
+                    .iter()
+                    .map(|value| {
+                        let (name, value) = value.attribute();
+                        Attribute {
+                            name,
+                            value: roxmltree::StringStorage::new_owned(&value),
+                            important: false,
+                        }
+                    })
+                    .collect();
+                (style.source_node_id, attrs)
+            })
+            .collect(),
     };
 
     // build a map of id -> node for resolve_href
@@ -415,6 +442,22 @@ pub(crate) fn parse_svg_element<'input>(
     if let Some(value) = xml_node.attribute("style") {
         for declaration in simplecss::DeclarationTokenizer::from(value) {
             write_declaration(&declaration);
+        }
+    }
+
+    // The host has already resolved these values. Do not put them through CSS
+    // precedence again, or apply a source element's inherited values to `use`
+    // clones that have a different instance parent.
+    if !ignore_ids && let Some(values) = doc.resolved_styles.get(&xml_node.id().get()) {
+        for value in values {
+            if let Some(existing) = doc.attrs[attrs_start_idx..]
+                .iter_mut()
+                .find(|attribute| attribute.name == value.name)
+            {
+                *existing = value.clone();
+            } else {
+                doc.attrs.push(value.clone());
+            }
         }
     }
 
