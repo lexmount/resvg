@@ -142,9 +142,7 @@ impl ResolvedStyleValue {
             P::FontFamily => Value::Families(svgtypes::parse_font_families(value).ok()?),
             P::FontSize | P::StrokeWidth => {
                 let parsed = length()?;
-                if let Value::Length(length) = &parsed
-                    && length.number < 0.0
-                {
+                if matches!(&parsed, Value::Length(length) if length.number < 0.0) {
                     return None;
                 }
                 parsed

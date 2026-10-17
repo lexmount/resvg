@@ -448,15 +448,17 @@ pub(crate) fn parse_svg_element<'input>(
     // The host has already resolved these values. Do not put them through CSS
     // precedence again, or apply a source element's inherited values to `use`
     // clones that have a different instance parent.
-    if !ignore_ids && let Some(values) = doc.resolved_styles.get(&xml_node.id().get()) {
-        for value in values {
-            if let Some(existing) = doc.attrs[attrs_start_idx..]
-                .iter_mut()
-                .find(|attribute| attribute.name == value.name)
-            {
-                *existing = value.clone();
-            } else {
-                doc.attrs.push(value.clone());
+    if !ignore_ids {
+        if let Some(values) = doc.resolved_styles.get(&xml_node.id().get()) {
+            for value in values {
+                if let Some(existing) = doc.attrs[attrs_start_idx..]
+                    .iter_mut()
+                    .find(|attribute| attribute.name == value.name)
+                {
+                    *existing = value.clone();
+                } else {
+                    doc.attrs.push(value.clone());
+                }
             }
         }
     }
