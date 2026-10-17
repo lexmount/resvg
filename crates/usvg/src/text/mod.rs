@@ -15,6 +15,7 @@ mod transform;
 mod colr;
 /// Provides access to the layout of a text node.
 pub mod layout;
+pub use layout::TextCluster;
 
 /// The optical sizing variation axis tag.
 pub(crate) const OPSZ: skrifa::Tag = skrifa::Tag::from_be_bytes(*b"opsz");
@@ -216,8 +217,9 @@ impl std::fmt::Debug for FontResolver<'_> {
 ///    as decoration spans).
 /// 2. We convert all of the positioned glyphs into outlines.
 pub(crate) fn convert(text: &mut Text, resolver: &FontResolver, cache: &mut Cache) -> Option<()> {
-    let (text_fragments, bbox) = layout::layout_text(text, resolver, &mut cache.fontdb)?;
+    let (text_fragments, clusters, bbox) = layout::layout_text(text, resolver, &mut cache.fontdb)?;
     text.layouted = text_fragments;
+    text.layouted_clusters = clusters;
     text.bounding_box = bbox.to_rect();
     text.abs_bounding_box = bbox.transform(text.abs_transform)?.to_rect();
 

@@ -599,12 +599,20 @@ pub struct Text {
     pub(crate) flattened: Box<Group>,
     #[cfg(feature = "text")]
     pub(crate) layouted: Vec<Span>,
+    #[cfg(feature = "text")]
+    pub(crate) layouted_clusters: Vec<crate::TextCluster>,
 }
 
 impl Text {
     /// The original XML text element, independent of its authored `id`.
     pub fn source_node_id(&self) -> Option<u32> {
         self.source_node_id
+    }
+
+    /// Shaped clusters shared by glyph painting and logical text queries.
+    #[cfg(feature = "text")]
+    pub fn layouted_clusters(&self) -> &[crate::TextCluster] {
+        &self.layouted_clusters
     }
 
     /// Element's ID.

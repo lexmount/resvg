@@ -174,12 +174,42 @@ pub struct Span {
     pub line_through: Option<Path>,
 }
 
+/// A shaped cluster retained from the same layout used for glyph painting.
+///
+/// Logical ranges remain in the normalized chunk text; visual order and
+/// placement are independent, including bidi and text-on-path placement.
+#[derive(Clone, Debug)]
+pub struct TextCluster {
+    /// Index into the parent `Text::chunks()` array.
+    pub chunk_index: usize,
+    /// Logical byte range in that chunk's normalized UTF-8 text.
+    pub byte_range: std::ops::Range<usize>,
+    /// Cluster-local font-size units to the text element's local user space.
+    /// Includes placement, baseline shift, rotation and glyph scaling, but
+    /// not the text element's or ancestor elements' transforms.
+    pub transform: Transform,
+    /// Typographic advance, including letter/word spacing, before the above
+    /// transform. Excludes positioning offsets and `lengthAdjust=spacing`.
+    pub advance: f32,
+    /// Font ascent in cluster-local font-size units.
+    pub ascent: f32,
+    /// Font descent, normally negative, in cluster-local font-size units.
+    pub descent: f32,
+    /// Whether the shaped run has right-to-left logical direction.
+    pub is_rtl: bool,
+    /// Whether the cluster lies on its text path. CSS `visibility` does not
+    /// remove a cluster from layout or from text measurements.
+    pub visible: bool,
+}
+
 #[derive(Clone, Debug)]
 struct GlyphCluster {
     byte_idx: ByteIndex,
     codepoint: char,
     width: f32,
     advance: f32,
+    text_advance: f32,
+    is_rtl: bool,
     ascent: f32,
     descent: f32,
     has_relative_shift: bool,
@@ -203,7 +233,7 @@ pub(crate) fn layout_text(
     text_node: &Text,
     resolver: &FontResolver,
     fontdb: &mut Arc<fontdb::Database>,
-) -> Option<(Vec<Span>, NonZeroRect)> {
+) -> Option<(Vec<Span>, Vec<TextCluster>, NonZeroRect)> {
     let mut fonts_cache: FontsCache = HashMap::new();
 
     for chunk in &text_node.chunks {
@@ -219,11 +249,12 @@ pub(crate) fn layout_text(
     }
 
     let mut spans = vec![];
+    let mut layouted_clusters = vec![];
     let mut char_offset = 0;
     let mut last_x = 0.0;
     let mut last_y = 0.0;
     let mut bbox = BBox::default();
-    for chunk in &text_node.chunks {
+    for (chunk_index, chunk) in text_node.chunks.iter().enumerate() {
         let (x, y) = match chunk.text_flow {
             TextFlow::Linear => (chunk.x.unwrap_or(last_x), chunk.y.unwrap_or(last_y)),
             TextFlow::Path(_) => (0.0, 0.0),
@@ -238,6 +269,19 @@ pub(crate) fn layout_text(
         apply_writing_mode(text_node.writing_mode, &mut clusters);
         apply_letter_spacing(chunk, &mut clusters);
         apply_word_spacing(chunk, &mut clusters);
+
+        // Snapshot typographic advance before textLength inserts placement
+        // gaps. Glyph scaling remains in each cluster's final transform.
+        for cluster in &mut clusters {
+            cluster.text_advance = cluster.advance;
+        }
+        let mut boundaries = clusters
+            .iter()
+            .map(|cluster| cluster.byte_idx.value())
+            .collect::<Vec<_>>();
+        boundaries.push(chunk.text.len());
+        boundaries.sort_unstable();
+        boundaries.dedup();
 
         apply_length_adjust(chunk, &mut clusters);
         let mut curr_pos = resolve_clusters_positions(
@@ -273,6 +317,24 @@ pub(crate) fn layout_text(
                 // because clusters can be rotated and an additional shift will lead
                 // to invalid results.
                 span_ts = span_ts.pre_translate(0.0, shift);
+            }
+
+            for cluster in clusters
+                .iter()
+                .filter(|cluster| span_contains(span, cluster.byte_idx))
+            {
+                let start = cluster.byte_idx.value();
+                let end = boundaries[boundaries.binary_search(&start).unwrap() + 1];
+                layouted_clusters.push(TextCluster {
+                    chunk_index,
+                    byte_range: start..end,
+                    transform: span_ts.pre_concat(cluster.transform()),
+                    advance: cluster.text_advance,
+                    ascent: cluster.ascent,
+                    descent: cluster.descent,
+                    is_rtl: cluster.is_rtl,
+                    visible: cluster.visible,
+                });
             }
 
             let mut underline = None;
@@ -380,7 +442,7 @@ pub(crate) fn layout_text(
 
     let bbox = bbox.to_non_zero_rect()?;
 
-    Some((spans, bbox))
+    Some((spans, layouted_clusters, bbox))
 }
 
 fn convert_span(
@@ -1193,6 +1255,8 @@ fn form_glyph_clusters(glyphs: &[Glyph], text: &str, font_size: f32) -> GlyphClu
         codepoint: byte_idx.char_from(text),
         width,
         advance,
+        text_advance: advance,
+        is_rtl: glyphs[0].is_rtl,
         ascent: font.ascent(font_size),
         descent: font.descent(font_size),
         has_relative_shift: false,
@@ -1528,6 +1592,7 @@ fn shape_text_with_font(
                 .map_or(sub_text.len(), |info| info.cluster as usize);
 
                 glyphs.push(Glyph {
+                    is_rtl: !ltr,
                     byte_idx: ByteIndex::new(idx),
                     cluster_len: end.checked_sub(start).unwrap_or(0), // TODO: can fail?
                     text: sub_text[start..end].to_string(),
@@ -1615,6 +1680,7 @@ pub(crate) fn script_supports_letter_spacing(script: unicode_script::Script) -> 
 /// Basically, a glyph ID and it's metrics.
 #[derive(Clone)]
 pub(crate) struct Glyph {
+    pub(crate) is_rtl: bool,
     /// The glyph ID in the font.
     pub(crate) id: GlyphId,
 
