@@ -25,6 +25,8 @@ impl<'input> Document<'input> {
     pub(crate) fn append(&mut self, parent_id: NodeId, kind: NodeKind) -> NodeId {
         let new_child_id = NodeId::from(self.nodes.len());
         self.nodes.push(NodeData {
+            #[cfg(feature = "text")]
+            source_node_id: None,
             parent: Some(parent_id),
             next_sibling: None,
             children: None,
@@ -84,6 +86,8 @@ fn parse<'input>(
 
     // Add a root node.
     doc.nodes.push(NodeData {
+        #[cfg(feature = "text")]
+        source_node_id: None,
         parent: None,
         next_sibling: None,
         children: None,
@@ -425,6 +429,11 @@ pub(crate) fn parse_svg_element<'input>(
             attributes: ShortRange::new(attrs_start_idx as u32, doc.attrs.len() as u32),
         },
     );
+
+    #[cfg(feature = "text")]
+    {
+        doc.nodes[node_id.get_usize()].source_node_id = Some(xml_node.id().get());
+    }
 
     Ok(node_id)
 }

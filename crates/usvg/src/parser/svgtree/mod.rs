@@ -191,6 +191,8 @@ pub(crate) enum NodeKind {
 }
 
 struct NodeData {
+    #[cfg(feature = "text")]
+    source_node_id: Option<u32>,
     parent: Option<NodeId>,
     next_sibling: Option<NodeId>,
     children: Option<(NodeId, NodeId)>,
@@ -236,6 +238,11 @@ impl PartialEq for SvgNode<'_, '_> {
 }
 
 impl<'a, 'input: 'a> SvgNode<'a, 'input> {
+    #[cfg(feature = "text")]
+    pub(crate) fn source_node_id(&self) -> Option<u32> {
+        self.d.source_node_id
+    }
+
     #[inline]
     fn id(&self) -> NodeId {
         self.id

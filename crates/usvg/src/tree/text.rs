@@ -329,6 +329,7 @@ impl TextDecoration {
 /// Spans do not overlap inside a text chunk.
 #[derive(Clone, Debug)]
 pub struct TextSpan {
+    pub(crate) source_node_id: Option<u32>,
     pub(crate) start: usize,
     pub(crate) end: usize,
     pub(crate) fill: Option<Fill>,
@@ -351,6 +352,14 @@ pub struct TextSpan {
 }
 
 impl TextSpan {
+    /// The original XML element that owns this span, before SVG normalization.
+    ///
+    /// This is a `roxmltree::NodeId::get()` value in the document supplied to
+    /// `Tree::from_xmltree`, not the element's authored `id` attribute.
+    pub fn source_node_id(&self) -> Option<u32> {
+        self.source_node_id
+    }
+
     /// A span start in bytes.
     ///
     /// Offset is relative to the parent text chunk and not the parent text element.
@@ -574,6 +583,7 @@ pub enum WritingMode {
 /// `text` element in SVG.
 #[derive(Clone, Debug)]
 pub struct Text {
+    pub(crate) source_node_id: Option<u32>,
     pub(crate) id: String,
     pub(crate) rendering_mode: TextRendering,
     pub(crate) dx: Vec<f32>,
@@ -592,6 +602,11 @@ pub struct Text {
 }
 
 impl Text {
+    /// The original XML text element, independent of its authored `id`.
+    pub fn source_node_id(&self) -> Option<u32> {
+        self.source_node_id
+    }
+
     /// Element's ID.
     ///
     /// Taken from the SVG itself.
