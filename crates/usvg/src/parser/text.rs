@@ -583,51 +583,31 @@ fn conv_font_stretch(node: SvgNode) -> FontStretch {
 }
 
 fn resolve_font_weight(node: SvgNode) -> u16 {
-    fn bound(min: usize, val: usize, max: usize) -> usize {
-        std::cmp::max(min, std::cmp::min(max, val))
-    }
-
     let nodes: Vec<_> = node.ancestors().collect();
-    let mut weight = 400;
+    // Keep fractional inherited values until relative weights are resolved:
+    // rounding 349.9 to 350 first would cross a CSS relative-weight boundary.
+    let mut weight: f64 = 400.0;
     for n in nodes.iter().rev().skip(1) {
         // skip Root
         weight = match n.attribute(AId::FontWeight).unwrap_or("") {
-            "normal" => 400,
-            "bold" => 700,
-            "100" => 100,
-            "200" => 200,
-            "300" => 300,
-            "400" => 400,
-            "500" => 500,
-            "600" => 600,
-            "700" => 700,
-            "800" => 800,
-            "900" => 900,
-            "bolder" => {
-                // By the CSS2 spec the default value should be 400
-                // so `bolder` will result in 500.
-                // But Chrome and Inkscape will give us 700.
-                // Have no idea is it a bug or something, but
-                // we will follow such behavior for now.
-                let step = if weight == 400 { 300 } else { 100 };
-
-                bound(100, weight + step, 900)
-            }
-            "lighter" => {
-                // By the CSS2 spec the default value should be 400
-                // so `lighter` will result in 300.
-                // But Chrome and Inkscape will give us 200.
-                // Have no idea is it a bug or something, but
-                // we will follow such behavior for now.
-                let step = if weight == 400 { 200 } else { 100 };
-
-                bound(100, weight - step, 900)
-            }
-            _ => weight,
+            "normal" => 400.0,
+            "bold" => 700.0,
+            // https://drafts.csswg.org/css-fonts-4/#relative-weights
+            "bolder" if weight < 350.0 => 400.0,
+            "bolder" if weight < 550.0 => 700.0,
+            "bolder" => weight.max(900.0),
+            "lighter" if weight < 550.0 => weight.min(100.0),
+            "lighter" if weight < 750.0 => 400.0,
+            "lighter" => 700.0,
+            value => value
+                .parse::<f64>()
+                .ok()
+                .filter(|value| (1.0..=1000.0).contains(value))
+                .unwrap_or(weight),
         };
     }
 
-    weight as u16
+    weight.round() as u16
 }
 
 /// Resolves text's character positions.
