@@ -19,6 +19,7 @@ pub enum ResolvedStyleProperty {
     FontFamily,
     FontWeight,
     FontStyle,
+    FontStretch,
     Direction,
     FontKerning,
     LetterSpacing,
@@ -160,6 +161,17 @@ impl ResolvedStyleValue {
                     keyword(&["normal", "italic", "oblique"])?
                 }
             }
+            P::FontStretch => keyword(&[
+                "ultra-condensed",
+                "extra-condensed",
+                "condensed",
+                "semi-condensed",
+                "normal",
+                "semi-expanded",
+                "expanded",
+                "extra-expanded",
+                "ultra-expanded",
+            ])?,
             P::Direction => keyword(&["ltr", "rtl"])?,
             P::FontKerning => keyword(&["auto", "normal", "none"])?,
             P::LetterSpacing | P::WordSpacing => {
@@ -257,6 +269,7 @@ impl ResolvedStyleValue {
             P::FontFamily => AId::FontFamily,
             P::FontWeight => AId::FontWeight,
             P::FontStyle => AId::FontStyle,
+            P::FontStretch => AId::FontStretch,
             P::Direction => AId::Direction,
             P::FontKerning => AId::FontKerning,
             P::LetterSpacing => AId::LetterSpacing,

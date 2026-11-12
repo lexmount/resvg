@@ -33,7 +33,11 @@ fn host_font_and_fill_are_final_values_without_a_css_override() {
         .unwrap();
     let input = [ResolvedElementStyle {
         source_node_id: label.id().get(),
-        values: vec![value(P::FontSize, "32px"), value(P::Fill, "green")],
+        values: vec![
+            value(P::FontSize, "32px"),
+            value(P::Fill, "green"),
+            value(P::FontStretch, "condensed"),
+        ],
     }];
     let opt = options();
     let tree = usvg::Tree::from_xmltree_with_resolved_styles(&xml, &opt, &input).unwrap();
@@ -43,6 +47,7 @@ fn host_font_and_fill_are_final_values_without_a_css_override() {
     assert_eq!(text.source_node_id(), Some(label.id().get()));
     let span = &text.chunks()[0].spans()[0];
     assert_eq!(span.font_size().get(), 32.0);
+    assert_eq!(span.font().stretch(), usvg::FontStretch::Condensed);
     assert!(
         matches!(span.fill().unwrap().paint(), usvg::Paint::Color(color) if *color == usvg::Color::new_rgb(0,128,0))
     );
@@ -124,6 +129,7 @@ fn style_sources_are_checked_and_values_cannot_contain_declarations() {
         (P::Fill, "red !important"),
         (P::Fill, "url(#paint)"),
         (P::StrokeWidth, "-3px"),
+        (P::FontStretch, "condensed;fill:red"),
     ] {
         assert!(
             ResolvedStyleValue::parse(property, text).is_none(),
