@@ -904,7 +904,10 @@ fn finish_group(
     object_bbox: Option<NonZeroRect>,
 ) -> Option<Group> {
     let opacity = g.opacity;
-    let transform = g.transform;
+    // Nested viewport conversion may update g.transform while collecting
+    // children. Keep the original author's transform for group retention,
+    // just as convert_group did before extracting this finishing step.
+    let transform = node.resolve_transform(AId::Transform, state);
     let blend_mode = g.blend_mode;
     let isolate = g.isolate;
     let is_g_or_use = matches!(node.tag_name(), Some(EId::G) | Some(EId::Use));
