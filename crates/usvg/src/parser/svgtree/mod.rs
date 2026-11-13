@@ -25,6 +25,7 @@ pub struct Document<'input> {
     nodes: Vec<NodeData>,
     attrs: Vec<Attribute<'input>>,
     links: HashMap<String, NodeId>,
+    element_styles: Option<std::sync::Arc<crate::ElementStyleOverrides>>,
 }
 
 impl<'input> Document<'input> {
@@ -191,6 +192,7 @@ pub(crate) enum NodeKind {
 }
 
 struct NodeData {
+    source: Option<roxmltree::NodeId>,
     parent: Option<NodeId>,
     next_sibling: Option<NodeId>,
     children: Option<(NodeId, NodeId)>,
@@ -227,6 +229,12 @@ pub struct SvgNode<'a, 'input: 'a> {
 }
 
 impl Eq for SvgNode<'_, '_> {}
+
+impl SvgNode<'_, '_> {
+    pub(crate) fn source_id(&self) -> Option<roxmltree::NodeId> {
+        self.d.source
+    }
+}
 
 impl PartialEq for SvgNode<'_, '_> {
     #[inline]

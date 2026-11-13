@@ -1,7 +1,6 @@
 // Copyright 2018 the Resvg Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-#[cfg(feature = "text")]
 use std::sync::Arc;
 
 #[cfg(feature = "text")]
@@ -98,6 +97,10 @@ pub struct Options<'a> {
     /// A CSS stylesheet that should be injected into the SVG. Can be used to overwrite
     /// certain attributes.
     pub style_sheet: Option<String>,
+    /// Final embedding styles, applied after selectors match the original XML.
+    pub element_styles: Option<Arc<crate::ElementStyleOverrides>>,
+    /// Collect source object bounds before clipping and paint simplification.
+    pub collect_object_geometry: bool,
 }
 
 impl Default for Options<'_> {
@@ -119,6 +122,8 @@ impl Default for Options<'_> {
             #[cfg(feature = "text")]
             fontdb: Arc::new(fontdb::Database::new()),
             style_sheet: None,
+            element_styles: None,
+            collect_object_geometry: false,
         }
     }
 }

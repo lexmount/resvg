@@ -18,13 +18,15 @@ impl<'input> Document<'input> {
     pub fn parse_tree(
         xml: &roxmltree::Document<'input>,
         injected_stylesheet: Option<&'input str>,
+        element_styles: Option<std::sync::Arc<crate::ElementStyleOverrides>>,
     ) -> Result<Document<'input>, Error> {
-        parse(xml, injected_stylesheet)
+        parse(xml, injected_stylesheet, element_styles)
     }
 
     pub(crate) fn append(&mut self, parent_id: NodeId, kind: NodeKind) -> NodeId {
         let new_child_id = NodeId::from(self.nodes.len());
         self.nodes.push(NodeData {
+            source: None,
             parent: Some(parent_id),
             next_sibling: None,
             children: None,
@@ -65,11 +67,13 @@ impl<'input> Document<'input> {
 fn parse<'input>(
     xml: &roxmltree::Document<'input>,
     injected_stylesheet: Option<&'input str>,
+    element_styles: Option<std::sync::Arc<crate::ElementStyleOverrides>>,
 ) -> Result<Document<'input>, Error> {
     let mut doc = Document {
         nodes: Vec::new(),
         attrs: Vec::new(),
         links: HashMap::new(),
+        element_styles,
     };
 
     // build a map of id -> node for resolve_href
@@ -84,6 +88,7 @@ fn parse<'input>(
 
     // Add a root node.
     doc.nodes.push(NodeData {
+        source: None,
         parent: None,
         next_sibling: None,
         children: None,
@@ -414,6 +419,35 @@ pub(crate) fn parse_svg_element<'input>(
         }
     }
 
+    // Author selectors have finished matching the original XML. Embedding
+    // values replace the cascade result without adding selector-visible
+    // style/id attributes or allocating repeated value strings.
+    let overrides = doc
+        .element_styles
+        .as_ref()
+        .and_then(|styles| styles.get(&xml_node.id()))
+        .cloned();
+    if let Some(overrides) = overrides {
+        for property in overrides.iter() {
+            let Some(aid) = AId::from_str(&property.name) else {
+                continue;
+            };
+            if matches!(aid, AId::Id | AId::Href | AId::Style | AId::Class) {
+                continue;
+            }
+            let existing = doc.attrs[attrs_start_idx..]
+                .iter()
+                .position(|attr| attr.name == aid);
+            if append_attribute(parent_id, tag_name, aid, property.value.clone(), true, doc)
+                && let Some(index) = existing
+            {
+                let last = doc.attrs.len() - 1;
+                doc.attrs.swap(attrs_start_idx + index, last);
+                doc.attrs.pop();
+            }
+        }
+    }
+
     if doc.nodes.len() > 1_000_000 {
         return Err(Error::NodesLimitReached);
     }
@@ -425,6 +459,9 @@ pub(crate) fn parse_svg_element<'input>(
             attributes: ShortRange::new(attrs_start_idx as u32, doc.attrs.len() as u32),
         },
     );
+    // A use instance owns its own geometry. Do not overwrite the original
+    // definition's identity when cloning its children.
+    doc.nodes[node_id.get_usize()].source = (!ignore_ids).then_some(xml_node.id());
 
     Ok(node_id)
 }

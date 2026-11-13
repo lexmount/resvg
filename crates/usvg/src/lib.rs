@@ -51,6 +51,7 @@ and can focus just on the rendering part.
 #![warn(missing_debug_implementations)]
 #![warn(missing_copy_implementations)]
 
+mod object_geometry;
 mod parser;
 #[cfg(feature = "text")]
 mod text;
@@ -58,6 +59,7 @@ mod tree;
 #[cfg(feature = "writer")]
 mod writer;
 
+pub use object_geometry::{ElementStyleOverrides, ElementStyleProperty, ObjectGeometry};
 pub use parser::*;
 #[cfg(feature = "text")]
 pub use text::*;

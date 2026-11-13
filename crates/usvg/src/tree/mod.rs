@@ -1591,6 +1591,7 @@ impl Image {
 #[allow(missing_debug_implementations)]
 #[derive(Clone, Debug)]
 pub struct Tree {
+    pub(crate) object_geometry: Vec<crate::ObjectGeometry>,
     pub(crate) size: Size,
     pub(crate) root: Group,
     pub(crate) linear_gradients: Vec<Arc<LinearGradient>>,
@@ -1604,6 +1605,10 @@ pub struct Tree {
 }
 
 impl Tree {
+    /// Moves the optional numeric source geometry out of the paint resource.
+    pub fn take_object_geometry(&mut self) -> Vec<crate::ObjectGeometry> {
+        std::mem::take(&mut self.object_geometry)
+    }
     /// Image size.
     ///
     /// Size of an image that should be created to fit the SVG.

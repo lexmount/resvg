@@ -44,6 +44,7 @@ pub struct State<'a> {
 
 #[derive(Clone)]
 pub struct Cache {
+    object_geometry: Option<crate::object_geometry::GeometryCollector>,
     /// This fontdb is initialized from [`Options::fontdb`] and then populated
     /// over the course of conversion.
     #[cfg(feature = "text")]
@@ -96,6 +97,7 @@ macro_rules! font_lookup {
 impl Cache {
     pub(crate) fn new(#[cfg(feature = "text")] fontdb: Arc<Database>) -> Self {
         Self {
+            object_geometry: None,
             #[cfg(feature = "text")]
             fontdb,
 
@@ -399,6 +401,7 @@ pub(crate) fn convert_doc(svg_doc: &svgtree::Document, opt: &Options) -> Result<
         });
 
     let mut tree = Tree {
+        object_geometry: Vec::new(),
         size,
         root: Group::empty(),
         linear_gradients: Vec::new(),
@@ -429,6 +432,9 @@ pub(crate) fn convert_doc(svg_doc: &svgtree::Document, opt: &Options) -> Result<
         #[cfg(feature = "text")]
         opt.fontdb.clone(),
     );
+    if opt.collect_object_geometry {
+        cache.object_geometry = Some(crate::object_geometry::GeometryCollector::default());
+    }
 
     for node in svg_doc.descendants() {
         if let Some(tag) = node.tag_name() {
@@ -486,6 +492,11 @@ pub(crate) fn convert_doc(svg_doc: &svgtree::Document, opt: &Options) -> Result<
     tree.root.collect_masks(&mut tree.masks);
     tree.root.collect_filters(&mut tree.filters);
     tree.root.calculate_bounding_boxes();
+    tree.object_geometry = cache
+        .object_geometry
+        .take()
+        .map(|geometry| geometry.objects)
+        .unwrap_or_default();
 
     // The fontdb might have been mutated and we want to apply these changes to
     // the tree's fontdb.
@@ -668,6 +679,14 @@ fn convert_element_impl(
     cache: &mut Cache,
     parent: &mut Group,
 ) {
+    // Resource conversion (markers, paint servers, embedded glyph images)
+    // must not enter the source document's object-geometry hierarchy.
+    let leaf = !matches!(tag_name, EId::G | EId::Svg);
+    let geometry = if leaf {
+        cache.object_geometry.take()
+    } else {
+        None
+    };
     match tag_name {
         EId::Rect
         | EId::Circle
@@ -699,6 +718,9 @@ fn convert_element_impl(
             convert_children(node, state, cache, parent);
         }
         _ => {}
+    }
+    if leaf {
+        cache.object_geometry = geometry;
     }
 }
 
@@ -839,11 +861,53 @@ pub(crate) fn convert_group(
         abs_layer_bounding_box: NonZeroRect::from_xywh(0.0, 0.0, 1.0, 1.0).unwrap(),
         children: Vec::new(),
     };
+    let collect_geometry = cache.object_geometry.is_some();
+    if let Some(geometry) = &mut cache.object_geometry {
+        geometry.begin();
+    }
     collect_children(cache, &mut g);
+    if collect_geometry {
+        let own_bounds = g
+            .children
+            .iter()
+            .filter(|child| !matches!(child, Node::Group(_)))
+            .fold(BBox::default(), |bounds, child| {
+                bounds.expand(child.bounding_box())
+            })
+            .to_rect();
+        cache
+            .object_geometry
+            .as_mut()
+            .expect("restored source geometry scope")
+            .finish(node.source_id(), own_bounds, g.abs_transform);
+    }
 
     // We need to know group's bounding box before converting
     // clipPaths, masks and filters.
     let object_bbox = g.calculate_object_bbox();
+
+    // Paint effects can discard the group, or recursively decode resources.
+    // Neither may remove source geometry or contaminate its parent scope.
+    let geometry = cache.object_geometry.take();
+    let result = finish_group(node, state, force, cache, parent, g, object_bbox);
+    cache.object_geometry = geometry;
+    result
+}
+
+fn finish_group(
+    node: SvgNode,
+    state: &State,
+    force: bool,
+    cache: &mut Cache,
+    parent: &mut Group,
+    mut g: Group,
+    object_bbox: Option<NonZeroRect>,
+) -> Option<Group> {
+    let opacity = g.opacity;
+    let transform = g.transform;
+    let blend_mode = g.blend_mode;
+    let isolate = g.isolate;
+    let is_g_or_use = matches!(node.tag_name(), Some(EId::G) | Some(EId::Use));
 
     // `mask` and `filter` cannot be set on `clipPath` children.
     // But `clip-path` can.
