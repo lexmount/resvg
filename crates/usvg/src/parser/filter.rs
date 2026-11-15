@@ -21,6 +21,18 @@ use super::converter::{self, SvgColorExt};
 use super::paint_server::{convert_units, resolve_number};
 use super::svgtree::{AId, EId, FromValue, SvgNode};
 
+// SVG numbers can be finite individually while their object-bbox mapping
+// overflows, underflows, or collapses an edge. Keep the original arithmetic
+// order, but let invalid mapped regions use the existing conversion failures.
+fn checked_bbox_transform(rect: NonZeroRect, bbox: NonZeroRect) -> Option<NonZeroRect> {
+    NonZeroRect::from_xywh(
+        rect.x() * bbox.width() + bbox.x(),
+        rect.y() * bbox.height() + bbox.y(),
+        rect.width() * bbox.width(),
+        rect.height() * bbox.height(),
+    )
+}
+
 impl<'a, 'input: 'a> FromValue<'a, 'input> for filter::ColorInterpolation {
     fn parse(_: SvgNode, _: AId, value: &str) -> Option<Self> {
         match value {
@@ -69,7 +81,14 @@ pub(crate) fn convert(
                 }
             };
 
-            rect = rect.bbox_transform(object_bbox);
+            let Some(mapped) = checked_bbox_transform(rect, object_bbox) else {
+                log::warn!(
+                    "Filter '{}' has an invalid region. Skipped.",
+                    node.element_id()
+                );
+                return;
+            };
+            rect = mapped;
 
             filters.push(Arc::new(Filter {
                 id: cache.gen_filter_id(),
@@ -224,7 +243,14 @@ fn convert_url(
 
     if units == Units::ObjectBoundingBox {
         if let Some(object_bbox) = object_bbox {
-            rect = rect.bbox_transform(object_bbox);
+            rect = checked_bbox_transform(rect, object_bbox)
+                .log_none(|| {
+                    log::warn!(
+                        "Filter '{}' has an invalid region. Skipped.",
+                        node.element_id()
+                    )
+                })
+                .ok_or(())?;
         } else {
             log::warn!("Filters on zero-sized shapes are not allowed.");
             return Err(());
@@ -408,7 +434,7 @@ fn resolve_primitive_region(
                     height.unwrap_or(1.0),
                 )?;
 
-                return Some(r.bbox_transform(bbox));
+                return checked_bbox_transform(r, bbox);
             } else {
                 filter_region
             }
@@ -425,7 +451,7 @@ fn resolve_primitive_region(
             height.unwrap_or(1.0),
         )?;
 
-        Some(region.bbox_transform(subregion_bbox))
+        checked_bbox_transform(region, subregion_bbox)
     } else {
         NonZeroRect::from_xywh(
             x.unwrap_or(region.x()),
