@@ -37,6 +37,20 @@ pub struct ObjectGeometry {
     pub bounding_box: Rect,
     /// Maps those coordinates into the outer SVG viewport.
     pub transform: Transform,
+    /// Original UTF-16 text offsets for a shaped text cell, when this is a
+    /// text source rather than an element's object bounds.
+    pub text_range: Option<TextGeometryRange>,
+}
+
+/// Source offsets and native bidi direction of one shaped text cell.
+#[derive(Clone, Copy, Debug)]
+pub struct TextGeometryRange {
+    /// Inclusive UTF-16 offset in the original XML text node.
+    pub start: usize,
+    /// Exclusive UTF-16 offset in the original XML text node.
+    pub end: usize,
+    /// Whether logical offsets advance from the cell's right edge.
+    pub rtl: bool,
 }
 
 #[derive(Clone, Default)]
@@ -78,6 +92,7 @@ impl GeometryCollector {
                     source,
                     bounding_box,
                     transform,
+                    text_range: None,
                 });
             }
             if let Some(parent) = self.frames.last_mut() {

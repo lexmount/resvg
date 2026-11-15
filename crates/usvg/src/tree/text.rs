@@ -527,6 +527,13 @@ pub struct TextChunk {
     pub(crate) spans: Vec<TextSpan>,
     pub(crate) text_flow: TextFlow,
     pub(crate) text: String,
+    pub(crate) sources: Vec<TextSource>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct TextSource {
+    pub(crate) byte_index: usize,
+    pub(crate) source: Option<(roxmltree::NodeId, usize, usize)>,
 }
 
 impl TextChunk {

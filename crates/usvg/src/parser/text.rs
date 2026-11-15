@@ -102,6 +102,7 @@ pub(crate) fn convert(
     state: &converter::State,
     cache: &mut converter::Cache,
     parent: &mut Group,
+    geometry: Option<&mut Vec<crate::ObjectGeometry>>,
 ) {
     let pos_list = resolve_positions_list(text_node, state);
     let rotate_list = resolve_rotate_list(text_node);
@@ -140,8 +141,16 @@ pub(crate) fn convert(
         layouted: vec![],
     };
 
-    if text::convert(&mut text, &state.opt.font_resolver, cache).is_none() {
+    let Some(source_geometry) = text::convert(
+        &mut text,
+        &state.opt.font_resolver,
+        cache,
+        geometry.is_some(),
+    ) else {
         return;
+    };
+    if let Some(geometry) = geometry {
+        geometry.extend(source_geometry);
     }
 
     parent.children.push(Node::Text(Box::new(text)));
@@ -304,7 +313,7 @@ fn collect_text_chunks_impl(
         };
 
         let mut is_new_span = true;
-        for c in child.text().chars() {
+        for (source_index, c) in child.text().chars().enumerate() {
             let char_len = c.len_utf8();
 
             // Create a new chunk if:
@@ -333,6 +342,7 @@ fn collect_text_chunks_impl(
                     spans: vec![span2],
                     text_flow: iter_state.text_flow.clone(),
                     text: c.to_string(),
+                    sources: Vec::new(),
                 });
             } else if is_new_span {
                 // Add this span to the last text chunk.
@@ -357,6 +367,15 @@ fn collect_text_chunks_impl(
 
             is_new_span = false;
             iter_state.chars_count += 1;
+            if let Some(chunk) = iter_state.chunks.last_mut() {
+                chunk.sources.push(TextSource {
+                    byte_index: iter_state.chunk_bytes_count,
+                    source: child.source_id().and_then(|source| {
+                        let &(start, end) = child.text_source_ranges().get(source_index)?;
+                        Some((source, start, end))
+                    }),
+                });
+            }
             iter_state.chunk_bytes_count += char_len;
         }
     }

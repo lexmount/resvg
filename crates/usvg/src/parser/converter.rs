@@ -682,7 +682,7 @@ fn convert_element_impl(
     // Resource conversion (markers, paint servers, embedded glyph images)
     // must not enter the source document's object-geometry hierarchy.
     let leaf = !matches!(tag_name, EId::G | EId::Svg);
-    let geometry = if leaf {
+    let mut geometry = if leaf {
         cache.object_geometry.take()
     } else {
         None
@@ -705,7 +705,13 @@ fn convert_element_impl(
         EId::Text => {
             #[cfg(feature = "text")]
             {
-                super::text::convert(node, state, cache, parent);
+                super::text::convert(
+                    node,
+                    state,
+                    cache,
+                    parent,
+                    geometry.as_mut().map(|value| &mut value.objects),
+                );
             }
         }
         EId::Svg => {
@@ -779,7 +785,7 @@ fn convert_clip_path_elements_impl(
         EId::Text => {
             #[cfg(feature = "text")]
             {
-                super::text::convert(node, state, cache, parent);
+                super::text::convert(node, state, cache, parent, None);
             }
         }
         _ => {

@@ -59,7 +59,9 @@ mod tree;
 #[cfg(feature = "writer")]
 mod writer;
 
-pub use object_geometry::{ElementStyleOverrides, ElementStyleProperty, ObjectGeometry};
+pub use object_geometry::{
+    ElementStyleOverrides, ElementStyleProperty, ObjectGeometry, TextGeometryRange,
+};
 pub use parser::*;
 #[cfg(feature = "text")]
 pub use text::*;

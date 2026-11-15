@@ -188,7 +188,7 @@ pub(crate) enum NodeKind {
         tag_name: EId,
         attributes: ShortRange,
     },
-    Text(String),
+    Text(text::TextData),
 }
 
 struct NodeData {
@@ -413,6 +413,13 @@ impl<'a, 'input: 'a> SvgNode<'a, 'input> {
             },
             NodeKind::Text(ref text) => text,
             _ => "",
+        }
+    }
+
+    pub(crate) fn text_source_ranges(&self) -> &[(usize, usize)] {
+        match &self.d.kind {
+            NodeKind::Text(text) => &text.source_ranges,
+            _ => &[],
         }
     }
 

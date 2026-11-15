@@ -19,7 +19,7 @@ use unicode_script::UnicodeScript;
 use crate::tree::{BBox, IsValidLength};
 use crate::{
     AlignmentBaseline, ApproxZeroUlps, BaselineShift, DominantBaseline, Fill, FillRule, Font,
-    FontResolver, GlyphId, LengthAdjust, PaintOrder, Path, ShapeRendering, Stroke, Text,
+    FontResolver, GlyphId, LengthAdjust, PaintOrder, Path, Rect, ShapeRendering, Stroke, Text,
     TextAnchor, TextChunk, TextDecorationStyle, TextFlow, TextPath, TextSpan, WritingMode,
 };
 
@@ -177,6 +177,8 @@ pub struct Span {
 #[derive(Clone, Debug)]
 struct GlyphCluster {
     byte_idx: ByteIndex,
+    byte_len: usize,
+    rtl: bool,
     codepoint: char,
     width: f32,
     advance: f32,
@@ -203,7 +205,8 @@ pub(crate) fn layout_text(
     text_node: &Text,
     resolver: &FontResolver,
     fontdb: &mut Arc<fontdb::Database>,
-) -> Option<(Vec<Span>, NonZeroRect)> {
+    collect_geometry: bool,
+) -> Option<(Vec<Span>, NonZeroRect, Vec<crate::ObjectGeometry>)> {
     let mut fonts_cache: FontsCache = HashMap::new();
 
     for chunk in &text_node.chunks {
@@ -219,6 +222,7 @@ pub(crate) fn layout_text(
     }
 
     let mut spans = vec![];
+    let mut source_geometry = Vec::new();
     let mut char_offset = 0;
     let mut last_x = 0.0;
     let mut last_y = 0.0;
@@ -338,6 +342,18 @@ pub(crate) fn layout_text(
             if let Some((span_fragments, span_bbox)) = convert_span(span, &clusters, span_ts) {
                 bbox = bbox.expand(span_bbox);
 
+                if collect_geometry {
+                    for cluster in &span_fragments {
+                        collect_text_geometry(
+                            text_node,
+                            chunk,
+                            cluster,
+                            span_ts,
+                            &mut source_geometry,
+                        );
+                    }
+                }
+
                 let positioned_glyphs = span_fragments
                     .into_iter()
                     .flat_map(|mut gc| {
@@ -380,7 +396,69 @@ pub(crate) fn layout_text(
 
     let bbox = bbox.to_non_zero_rect()?;
 
-    Some((spans, bbox))
+    Some((spans, bbox, source_geometry))
+}
+
+fn collect_text_geometry(
+    text: &Text,
+    chunk: &TextChunk,
+    cluster: &GlyphCluster,
+    span_transform: Transform,
+    output: &mut Vec<crate::ObjectGeometry>,
+) {
+    let start = cluster.byte_idx.value();
+    let end = start.saturating_add(cluster.byte_len).min(chunk.text.len());
+    let Some(selected) = chunk.text.get(start..end) else {
+        return;
+    };
+    let length = selected.encode_utf16().count();
+    if length == 0 {
+        return;
+    }
+    let advance = if cluster.advance <= 0.0 {
+        1.0
+    } else {
+        cluster.advance
+    };
+    let transform = text
+        .abs_transform
+        .pre_concat(span_transform.pre_concat(cluster.transform()));
+    let mut offset = 0;
+    let first = chunk
+        .sources
+        .partition_point(|source| source.byte_index < start);
+    for source in chunk.sources[first..]
+        .iter()
+        .take_while(|source| source.byte_index < end)
+    {
+        let character = chunk.text[source.byte_index..]
+            .chars()
+            .next()
+            .expect("shaped source character boundary");
+        let next = offset + character.len_utf16();
+        let left = if cluster.rtl { length - next } else { offset };
+        if let (Some((source, start, end)), Some(bounding_box)) = (
+            &source.source,
+            Rect::from_xywh(
+                advance * left as f32 / length as f32,
+                -cluster.ascent,
+                advance * (next - offset) as f32 / length as f32,
+                cluster.height(),
+            ),
+        ) {
+            output.push(crate::ObjectGeometry {
+                source: *source,
+                bounding_box,
+                transform,
+                text_range: Some(crate::TextGeometryRange {
+                    start: *start,
+                    end: *end,
+                    rtl: cluster.rtl,
+                }),
+            });
+        }
+        offset = next;
+    }
 }
 
 fn convert_span(
@@ -1190,6 +1268,12 @@ fn form_glyph_clusters(glyphs: &[Glyph], text: &str, font_size: f32) -> GlyphClu
     let font = glyphs[0].font.clone();
     GlyphCluster {
         byte_idx,
+        byte_len: glyphs
+            .iter()
+            .map(|glyph| glyph.cluster_len)
+            .max()
+            .unwrap_or(0),
+        rtl: glyphs[0].rtl,
         codepoint: byte_idx.char_from(text),
         width,
         advance,
@@ -1529,6 +1613,7 @@ fn shape_text_with_font(
 
                 glyphs.push(Glyph {
                     byte_idx: ByteIndex::new(idx),
+                    rtl: !ltr,
                     cluster_len: end.checked_sub(start).unwrap_or(0), // TODO: can fail?
                     text: sub_text[start..end].to_string(),
                     id: GlyphId(info.glyph_id),
@@ -1622,6 +1707,7 @@ pub(crate) struct Glyph {
     ///
     /// We use it to match a glyph with a character in the text chunk and therefore with the style.
     pub(crate) byte_idx: ByteIndex,
+    pub(crate) rtl: bool,
 
     // The length of the cluster in bytes.
     pub(crate) cluster_len: usize,

@@ -47,7 +47,8 @@ fn parse_svg_text_element_impl<'input>(
     for node in parent.children() {
         if node.is_text() {
             let text = trim_text(node.text().unwrap(), space);
-            doc.append(parent_id, NodeKind::Text(text));
+            let id = doc.append(parent_id, NodeKind::Text(text));
+            doc.nodes[id.get_usize()].source = Some(node.id());
             continue;
         }
 
@@ -138,20 +139,36 @@ fn get_xmlspace(doc: &Document, node_id: NodeId, default: XmlSpace) -> XmlSpace 
     }
 }
 
-trait StrTrim {
-    fn remove_first_space(&mut self);
-    fn remove_last_space(&mut self);
+#[derive(Debug)]
+pub(crate) struct TextData {
+    value: String,
+    pub(super) source_ranges: Vec<(usize, usize)>,
 }
 
-impl StrTrim for String {
+impl std::ops::Deref for TextData {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.value
+    }
+}
+
+impl TextData {
+    fn clear(&mut self) {
+        self.value.clear();
+        self.source_ranges.clear();
+    }
+
     fn remove_first_space(&mut self) {
         debug_assert_eq!(self.chars().next().unwrap(), ' ');
-        self.drain(0..1);
+        self.value.drain(0..1);
+        self.source_ranges.remove(0);
     }
 
     fn remove_last_space(&mut self) {
         debug_assert_eq!(self.chars().next_back().unwrap(), ' ');
-        self.pop();
+        self.value.pop();
+        self.source_ranges.pop();
     }
 }
 
@@ -337,11 +354,15 @@ fn collect_text_nodes(parent: SvgNode, depth: usize, nodes: &mut Vec<(NodeId, us
     }
 }
 
-fn trim_text(text: &str, space: XmlSpace) -> String {
+fn trim_text(text: &str, space: XmlSpace) -> TextData {
     let mut s = String::with_capacity(text.len());
+    let mut source_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut offset = 0;
 
     let mut prev = '0';
     for c in text.chars() {
+        let start = offset;
+        offset += c.len_utf16();
         // \r, \n and \t should be converted into spaces.
         let c = match c {
             '\r' | '\n' | '\t' => ' ',
@@ -350,13 +371,20 @@ fn trim_text(text: &str, space: XmlSpace) -> String {
 
         // Skip continuous spaces.
         if space == XmlSpace::Default && c == ' ' && c == prev {
+            if let Some(range) = source_ranges.last_mut() {
+                range.1 = offset;
+            }
             continue;
         }
 
         prev = c;
 
         s.push(c);
+        source_ranges.push((start, offset));
     }
 
-    s
+    TextData {
+        value: s,
+        source_ranges,
+    }
 }
